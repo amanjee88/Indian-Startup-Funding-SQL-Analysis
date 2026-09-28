@@ -15,6 +15,9 @@ USE indian_startup_funding;
 -- Keep raw values as text because the source contains
 -- inconsistent dates, categories, encodings, and amounts.
 -- ------------------------------------------------------------
+
+DROP TABLE IF EXISTS startup_funding_staging;
+
 CREATE TABLE IF NOT EXISTS startup_funding_staging (
     sr_no INT,
     funding_date VARCHAR(20),
@@ -34,12 +37,22 @@ CREATE TABLE IF NOT EXISTS startup_funding_staging (
 -- Example path used during the project:
 -- D:/MySQL/Data/Uploads/indian_startup_funding.csv
 -- ------------------------------------------------------------
--- LOAD DATA INFILE 'D:/MySQL/Data/Uploads/indian_startup_funding.csv'
--- INTO TABLE startup_funding_staging
--- FIELDS TERMINATED BY ','
--- OPTIONALLY ENCLOSED BY '"'
--- LINES TERMINATED BY '\r\n'
--- IGNORE 1 ROWS;
+
+SET @OLD_SQL_MODE = @@SESSION.SQL_MODE;
+SET SESSION SQL_MODE = '';
+
+LOAD DATA INFILE 'D:/MySQL/Data/Uploads/indian_startup_funding.csv'
+INTO TABLE startup_funding_staging
+FIELDS TERMINATED BY ','
+OPTIONALLY ENCLOSED BY '"'
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS;
+
+SET SESSION SQL_MODE = @OLD_SQL_MODE;
+
+-- Verify that the expected number of CSV rows was imported.
+SELECT COUNT(*) AS imported_rows
+FROM startup_funding_staging;
 
 -- ------------------------------------------------------------
 -- 4. CLEAN ANALYTICAL TABLE
@@ -150,8 +163,12 @@ SELECT
 
 FROM normalized;
 
+ALTER TABLE startup_funding_clean
+ADD PRIMARY KEY (sr_no);
+
 -- Post-creation standardization based on verified source values.
-SET SQL_SAFE_UPDATES = 0;
+SET @OLD_SQL_SAFE_UPDATES = @@SESSION.SQL_SAFE_UPDATES;
+SET SESSION SQL_SAFE_UPDATES = 0;
 
 -- Convert blank investment-type entries to NULL.
 UPDATE startup_funding_clean
@@ -167,7 +184,12 @@ UPDATE startup_funding_clean
 SET startup_name = 'Ola'
 WHERE startup_name IN ('Ola Cabs', 'Olacabs');
 
-SET SQL_SAFE_UPDATES = 1;
+-- Standardize verified OYO Rooms name variant.
+UPDATE startup_funding_clean
+SET startup_name = 'OYO Rooms'
+WHERE startup_name = 'OyoRooms';
+
+SET SESSION SQL_SAFE_UPDATES = @OLD_SQL_SAFE_UPDATES;
 
 -- ------------------------------------------------------------
 -- 5. FINAL DATA QA
@@ -357,4 +379,199 @@ FROM ranked_industry
 WHERE funding_rank = 1
 ORDER BY funding_year;
 
--- End of project analysis
+-- ------------------------------------------------------------
+-- BUSINESS QUESTION 1: FUNDING CONCENTRATION BY YEAR
+-- Top 3 industries and their share of annual funding.
+-- ------------------------------------------------------------
+
+WITH annual_industry AS (
+    SELECT
+        YEAR(funding_date) AS funding_year,
+        industry_vertical,
+        SUM(amount_usd) AS industry_funding_usd
+    FROM startup_funding_clean
+    WHERE funding_date IS NOT NULL
+      AND industry_vertical IS NOT NULL
+      AND amount_usd IS NOT NULL
+    GROUP BY
+        YEAR(funding_date),
+        industry_vertical
+),
+
+ranked_industry AS (
+    SELECT
+        funding_year,
+        industry_vertical,
+        industry_funding_usd,
+        ROW_NUMBER() OVER (
+            PARTITION BY funding_year
+            ORDER BY industry_funding_usd DESC
+        ) AS industry_rank
+    FROM annual_industry
+),
+
+annual_totals AS (
+    SELECT
+        YEAR(funding_date) AS funding_year,
+        SUM(amount_usd) AS annual_funding_usd
+    FROM startup_funding_clean
+    WHERE funding_date IS NOT NULL
+      AND amount_usd IS NOT NULL
+    GROUP BY YEAR(funding_date)
+)
+
+SELECT
+    r.funding_year,
+    r.industry_vertical,
+    r.industry_rank,
+    ROUND(
+        r.industry_funding_usd / 1000000,
+        2
+    ) AS industry_funding_million_usd,
+    ROUND(
+        r.industry_funding_usd * 100.0 /
+        a.annual_funding_usd,
+        2
+    ) AS share_of_annual_funding_percent
+FROM ranked_industry AS r
+JOIN annual_totals AS a
+    ON r.funding_year = a.funding_year
+WHERE r.industry_rank <= 3
+ORDER BY
+    r.funding_year,
+    r.industry_rank;
+
+-- ------------------------------------------------------------
+-- BUSINESS QUESTION 2: STARTUP FUNDING CONCENTRATION
+-- Top startups and their cumulative share of total funding.
+-- ------------------------------------------------------------
+
+WITH startup_funding AS (
+    SELECT
+        startup_name,
+        SUM(amount_usd) AS total_funding_usd
+    FROM startup_funding_clean
+    WHERE startup_name IS NOT NULL
+      AND amount_usd IS NOT NULL
+    GROUP BY startup_name
+),
+
+ranked_startups AS (
+    SELECT
+        startup_name,
+        total_funding_usd,
+
+        DENSE_RANK() OVER (
+            ORDER BY total_funding_usd DESC
+        ) AS funding_rank,
+
+        SUM(total_funding_usd) OVER (
+            ORDER BY total_funding_usd DESC
+            ROWS BETWEEN UNBOUNDED PRECEDING
+            AND CURRENT ROW
+        ) AS cumulative_funding_usd
+
+    FROM startup_funding
+),
+
+overall_funding AS (
+    SELECT
+        SUM(amount_usd) AS total_funding_usd
+    FROM startup_funding_clean
+    WHERE amount_usd IS NOT NULL
+)
+
+SELECT
+    r.funding_rank,
+    r.startup_name,
+
+    ROUND(
+        r.total_funding_usd / 1000000,
+        2
+    ) AS total_funding_million_usd,
+
+    ROUND(
+        r.total_funding_usd * 100.0
+        / o.total_funding_usd,
+        2
+    ) AS funding_share_percent,
+
+    ROUND(
+        r.cumulative_funding_usd * 100.0
+        / o.total_funding_usd,
+        2
+    ) AS cumulative_share_percent
+
+FROM ranked_startups AS r
+
+CROSS JOIN overall_funding AS o
+
+WHERE r.funding_rank <= 15
+
+ORDER BY r.funding_rank;
+
+-- ------------------------------------------------------------
+-- BUSINESS QUESTION 3: RECURRING HIGH-VALUE STARTUPS
+-- Startups with at least 3 reported funding rounds.
+-- ------------------------------------------------------------
+
+SELECT
+    startup_name,
+    COUNT(amount_usd) AS reported_funding_rounds,
+
+    ROUND(
+        SUM(amount_usd) / 1000000,
+        2
+    ) AS total_funding_million_usd,
+
+    ROUND(
+        AVG(amount_usd) / 1000000,
+        2
+    ) AS average_round_million_usd
+
+FROM startup_funding_clean
+
+WHERE startup_name IS NOT NULL
+  AND amount_usd IS NOT NULL
+
+GROUP BY startup_name
+
+HAVING COUNT(amount_usd) >= 3
+
+ORDER BY total_funding_million_usd DESC
+
+LIMIT 15;
+
+-- ------------------------------------------------------------
+-- INVESTOR ANALYSIS
+-- Investor values may contain multiple investors in one field.
+-- Results represent stored investor entries, not normalized
+-- individual investor participation.
+-- ------------------------------------------------------------
+
+SELECT
+    investors_name,
+    COUNT(*) AS funding_records,
+    COUNT(amount_usd) AS records_with_amount,
+
+    ROUND(
+        SUM(amount_usd) / 1000000,
+        2
+    ) AS total_funding_million_usd,
+
+    ROUND(
+        AVG(amount_usd) / 1000000,
+        2
+    ) AS average_funding_million_usd
+
+FROM startup_funding_clean
+
+WHERE investors_name IS NOT NULL
+
+GROUP BY investors_name
+
+HAVING COUNT(*) >= 5
+
+ORDER BY total_funding_million_usd DESC
+
+LIMIT 15;
