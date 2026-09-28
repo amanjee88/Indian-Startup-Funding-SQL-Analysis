@@ -42,6 +42,20 @@ The downloaded CSV contains **3,044 startup funding records** with 10 source fie
 
 The dataset contains historical startup funding records and should therefore be interpreted as a historical dataset rather than a current snapshot of India's startup ecosystem.
 
+## Dataset Source & Attribution
+
+This project uses the **Indian Startup Funding** dataset available on Kaggle:
+
+**Source:** [Indian Startup Funding — Kaggle](https://www.kaggle.com/sudalairajkumar/indian-startup-funding/data)
+
+The dataset contains historical funding records for Indian startups and includes information such as funding date, startup name, industry, city, investors, investment type, and funding amount.
+
+**Dataset creator:** Sudalai Rajkumar  
+**Original data acknowledgement:** trak.in  
+**License:** CC0: Public Domain
+
+The dataset was used for educational and portfolio analysis. All cleaning and transformations performed in this project are documented in the SQL script.
+
 ## Data Preparation
 
 A two-layer approach was used:
