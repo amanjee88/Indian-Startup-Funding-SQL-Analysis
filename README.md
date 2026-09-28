@@ -243,6 +243,8 @@ Indian-Startup-Funding-SQL-Analysis/
 ├── FINAL_BUSINESS_INSIGHTS.md
 ├── Project3_Indian_Startup_Funding_Analysis.sql
 └── README.md
+└── data/
+    └── indian_startup_funding.csv
 ```
 
 ## How to Reproduce
