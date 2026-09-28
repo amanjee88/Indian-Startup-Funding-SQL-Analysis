@@ -248,8 +248,10 @@ Indian-Startup-Funding-SQL-Analysis/
 ## How to Reproduce
 
 1. Install MySQL Server and MySQL Workbench.
-2. Place the CSV in the MySQL `secure_file_priv` upload directory, or update the `LOAD DATA INFILE` path in the SQL script.
-3. Run the SQL script in MySQL Workbench.
-4. Review the final QA query before using the analytical queries.
-5. Use the analysis sections to reproduce the business findings.
+2. Clone or download this repository.
+3. Place `indian_startup_funding.csv` from the `data/` folder into the MySQL `secure_file_priv` upload directory.
+4. Update the `LOAD DATA INFILE` path in the SQL script if your upload directory is different.
+5. Run the SQL script in MySQL Workbench.
+6. Review the final data-quality QA results to confirm the cleaned dataset contains 3,044 records.
+7. Run the analysis queries to reproduce the business findings.
 
