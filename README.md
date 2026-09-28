@@ -169,7 +169,6 @@ For this reason, minimum sample-size filters were used when comparing average fu
 
 After standardizing startup names, OYO Rooms combines `OyoRooms` and `OYO Rooms` into **8 reported funding rounds**, totaling approximately **$897 million** in recorded funding. Similar recurring high-value activity is visible for Flipkart, Paytm, Ola, Udaan, OYO Rooms, BigBasket, and Zomato.
 
-```markdown
 ### Detailed Business Insights
 
 For the complete business interpretation, see
